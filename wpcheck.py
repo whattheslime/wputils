@@ -14,9 +14,15 @@ from h4cktools.parse.args import urls_args, output_args, session_args
 BARFORMAT = "[=] {percentage:3.0f}% |{bar}| {n_fmt}/{total_fmt}"
 BARCURSOR = " =="
 
+
 def parse_args():
+    """Parse user arguments
+
+    Returns:
+        agrparse.NameSpace: parsed arguments    
+    """
     parser = argparse.ArgumentParser(
-        description="WordPress plugin vulnerability checker"
+        description="WordPress plugin version checker"
     )
 
     urls_args(parser)
@@ -35,12 +41,22 @@ def parse_args():
     )
     return parser.parse_args()
 
+
 def get_version(response):
+    """Get plugin version
+
+    Args:
+        response (h4cktools.HTTPResponse): HTTP response
+
+    Returns:
+        str: vplugin version if found, empty string otherwise
+    """
     if response.code != 404:
         match = response.search(f"Stable tag: {version_regex}")
         if match:
             return match.group(1)
     return ""
+
 
 async def main():
     #: Parsed Arguments
@@ -97,6 +113,7 @@ async def main():
         except Exception as e:
             l.error(e)
     l.info(f"{nbv} hosts have vulnerable versions of {a.slug}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
