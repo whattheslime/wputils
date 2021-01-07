@@ -1,0 +1,12 @@
+beautifulsoup4==4.9.3
+certifi==2020.12.5
+chardet==3.0.4
+h4cktools==0.0.1
+idna==2.10
+lxml==4.5.2
+requests==2.23.0
+requests-mock==1.8.0
+six==1.15.0
+soupsieve==2.1
+tqdm==4.55.1
+urllib3==1.25.9
