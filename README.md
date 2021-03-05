@@ -1,6 +1,6 @@
 # WordPress Plugin Checker
 
-A simple program allowing to find the version of a wordpress plugin on one or more urls.
+A simple program allowing to find the version of a wordpress plugin on one or more urls asynchronously.
 
 This tool allows you to quickly check if sites using wordpress have plugins with vulnerabilities.
 

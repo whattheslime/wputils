@@ -27,18 +27,20 @@ def parse_args():
 
     urls_args(parser)
 
-    output_args(parser)
-
-    session_args(parser)
-
-    parser.add_argument(
+    check = parser.add_argument_group("check arguments")
+    check.add_argument(
         "slug", type=str, metavar="plugin_slug", 
         help="vulnerable plugin slug (e.g. contact-form-7)"
     )
-    parser.add_argument(
+    check.add_argument(
         "version", type=str, metavar="patched_version", 
         help="plugin patched version"
     )
+
+    session_args(parser)
+    
+    output_args(parser)
+
     return parser.parse_args()
 
 
@@ -85,11 +87,12 @@ async def main():
     #: HTTP Session object
     s = HTTPSession()
 
+    l.info("Finding vulnerables hosts ...")
+    
     futures = [
         s.get(f"{u}/wp-content/plugins/{a.slug}/readme.txt") for u in urls
     ]
     
-    l.info("Finding vulnerables hosts ...")
     nbv = 0
     for f in tqdm.as_completed(futures, ascii=BARCURSOR, bar_format=BARFORMAT):
         try:
@@ -112,8 +115,11 @@ async def main():
                 l.fail(f"{r.host} - plugin not found")
         except Exception as e:
             l.error(e)
+    
     l.info(f"{nbv} hosts have vulnerable versions of {a.slug}")
 
 
 if __name__ == "__main__":
+    with open("logo.txt", "r") as logo:
+        print(logo.read())
     asyncio.run(main())
