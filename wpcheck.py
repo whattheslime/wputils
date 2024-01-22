@@ -1,125 +1,117 @@
 #!/usr/bin/env python3
-import argparse
-import asyncio
-import os
-from tqdm.asyncio import tqdm
+from asyncio import run
+from datetime import datetime
+from packaging.version import InvalidVersion, Version as v
+from pathlib import Path
+from re import search
+from urllib.parse import urljoin, urlparse
+
+from lib.args import parse_args, loadlist
+from lib.asyncqueue import AsyncQueue
+from lib.logger import info, progress, safe, vuln, warn
+from lib.session import http_session
 
 
-from h4cktools.http.httpsession import HTTPSession
-from h4cktools.display import Logger
-from h4cktools.parse.versions import version_regex
-from h4cktools.parse.files import loadlist
-from h4cktools.parse.args import urls_args, output_args, session_args
+LOGO = """
+  __      _____  ___ _           _    
+  \ \    / / _ \/ __| |_  ___ __| |__ 
+   \ \/\/ /|  _/ (__| ' \/ -_) _| / / 
+    \_/\_/ |_|  \___|_||_\___\__|_\_\ 
+"""
+version_regex = r"((?:\d+\.)+\d+)"
+readme_regex = f"Stable tag:\s+{version_regex}"
 
-BARFORMAT = "[=] {percentage:3.0f}% |{bar}| {n_fmt}/{total_fmt}"
-BARCURSOR = " =="
-
-
-def parse_args():
-    """Parse user arguments
-
-    Returns:
-        agrparse.NameSpace: parsed arguments    
-    """
-    parser = argparse.ArgumentParser(
-        description="WordPress plugin version checker"
-    )
-
-    urls_args(parser)
-
-    check = parser.add_argument_group("check arguments")
-    check.add_argument(
-        "slug", type=str, metavar="plugin_slug", 
-        help="vulnerable plugin slug (e.g. contact-form-7)"
-    )
-    check.add_argument(
-        "version", type=str, metavar="patched_version", 
-        help="plugin patched version"
-    )
-
-    session_args(parser)
-    
-    output_args(parser)
-
-    return parser.parse_args()
+versions_files = {        
+    "readme.txt":       readme_regex,
+    "README.txt":       readme_regex,
+    "README.md":        readme_regex,
+    "readme.md":        readme_regex,
+    "Readme.txt":       readme_regex,
+    "changelog.txt":    version_regex,
+    "CHANGELOG.md":     version_regex,
+}
 
 
-def get_version(response):
-    """Get plugin version
+def check_version(session, target, slug, max_version, output):
+    host = urlparse(target).netloc
 
-    Args:
-        response (h4cktools.HTTPResponse): HTTP response
-
-    Returns:
-        str: vplugin version if found, empty string otherwise
-    """
-    if response.code != 404:
-        match = response.search(f"Stable tag: {version_regex}")
-        if match:
-            return match.group(1)
-    return ""
+    # Check version files.
+    for file, regex in versions_files.items():
+        url = urljoin(target, f"wp-content/plugins/{slug}/{file}")
+        try:
+            response = session.get(url, allow_redirects=False)
+        except Exception as exception:
+            warn(exception)
+            return
+        
+        # Search version in file.
+        title = search(r"<title>(.*)</title>", response.text)
+        if response.status_code == 200 and not title:
+            match = search(regex, response.text)
+            if match:
+                # Check if version is vulnerable.
+                version = v(match.group(1))
+                message = f"{host} {slug} {version} {response.url}"
+                if version <= max_version:
+                    vuln(message)
+                    log = message.replace(" ", ",")
+                    # Write log.
+                    if output:
+                        with open(output, "a") as file:
+                            file.write(log)
+                    return log
+                else:
+                    safe(message)
+                    return
 
 
 async def main():
-    #: Parsed Arguments
-    a = parse_args()
+    """Program entry point."""
+    start_time = datetime.now()
+    args = parse_args()
 
-    #: Logger object
-    l = Logger(
-        filename=a.output, 
-        colors=not a.no_colors, 
-        verbosity=a.verbosity
-    )
+    output = Path(args.output)
+    plugins = [plugin.split(":", 1) for plugin in loadlist(args.plugins)]
+    targets = loadlist(args.targets)
 
-    #: Urls to check    
-    urls = []
-    if a.url:
-        urls = [a.url]
-    if a.url_list:
-        if not os.path.isfile(a.url_list):
-            l.error(f"File not found: {a.url_list}")
-            return
-        urls = loadlist(a.url_list)
+    with http_session(headers=args.headers, proxy=args.proxy) as session:
+        asyncqueue = AsyncQueue(args.workers)
 
-    nbt = len(urls)
-    l.info(f"{nbt} hosts will be checked")
-    
-    #: HTTP Session object
-    s = HTTPSession()
+        info("Loading targets...")
+        for target in targets:
+            for slug, version in plugins:
+                try:
+                    version = v(version)
+                except InvalidVersion as error:
+                    error(error, "for", slug)
+                    return
+                
+                asyncqueue.enqueue(
+                    check_version, session, target, slug, version, output)
+        
+        total = len(targets) * len(plugins)
 
-    l.info("Finding vulnerables hosts ...")
-    
-    futures = [
-        s.get(f"{u}/wp-content/plugins/{a.slug}/readme.txt") for u in urls
-    ]
-    
-    nbv = 0
-    for f in tqdm.as_completed(futures, ascii=BARCURSOR, bar_format=BARFORMAT):
+        info(
+            "Starting scan...", 
+            f"{len(targets)} target(s) and {len(plugins)} plugin(s) loaded!)")
         try:
-            #: HTTP Response object
-            r = await f
+            i = 0
+            founded = set()
+            with progress(total) as bar:
+                
+                async for host in asyncqueue.dequeue():
+                    i += 1
+                    bar.update(i)   
+                    if host:
+                        founded.add(host) 
 
-            #: Founded version
-            v = get_version(r)
-            if v:
-                if v < a.version:
-                    l.success(
-                        f"{r.host} - {a.slug} version is vulnerable: {v}"
-                    )
-                    nbv += 1
-                else:
-                    l.partial(
-                        f"{r.host} - {a.slug} is not vulnerable: {v}"
-                    )
-            else:
-                l.fail(f"{r.host} - plugin not found")
-        except Exception as e:
-            l.error(e)
+        except KeyboardInterrupt:
+            warn("Pausing threads...")
+
+    info(len(founded), "hosts have vulnerable plugins")
+    info(f"Eleapsed Time: {datetime.now() - start_time}")
     
-    l.info(f"{nbv} hosts have vulnerable versions of {a.slug}")
-
 
 if __name__ == "__main__":
-    with open("logo.txt", "r") as logo:
-        print(logo.read())
-    asyncio.run(main())
+    print(LOGO)
+    run(main())

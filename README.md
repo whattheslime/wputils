@@ -5,34 +5,24 @@ A simple program allowing to find the version of a wordpress plugin on one or mo
 This tool allows you to quickly check if sites using wordpress have plugins with vulnerabilities.
 
 ## Install
-1. Clone the repository:
-```bash
-$ git clone git@github.com:WhatTheSlime/wpcheck.git
-$ cd wpcheck
-```
 
-2. Create a virtual environment (optional):
 ```bash
-$ python -m venv env
-$ . env/bin/activate
-```
-
-3. Install python requirements:
-```bash
-$ python -m pip install requirements.txt
+git clone git@github.com:WhatTheSlime/wpcheck.git
+cd wpcheck
+python3 -m pip install packaging
+./wpcheck.py -h
 ```
 
 ## Usage
-Check a plugin on a single url:
+
 ```bash
-$ ./wpcheck.py -u <URL> <PLUGIN SLUG> <PATCHED VERSION>
-# Exemple
-$ ./wpcheck.py -u http://target.pwn contact-form-7 5.3.2
+# One target, one plugin.
+./wpcheck.py -t http://target.url -p contact-form-7:5.3.2
+
+# Many targets, many plugins.
+./wpcheck.py -t http://target1.url http://target2.url -p contact-form-7:5.3.2 wordpress-seo:17.2
+
+# Targets files, plugins files.
+./wpcheck.py -t path/to/targets1.lst path/to/targets2.lst -p path/to/plugins1.lst path/to/plugins2.lst
 ```
 
-Check version of a plugin on a list of urls:
-```bash
-$ ./wpcheck.py -ul <FILE PATH> <PLUGIN SLUG> <PATCHED VERSION>
-# Exemple
-$ ./wpcheck.py -ul target.lst contact-form-7 5.3.2
-```
