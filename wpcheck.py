@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
+# author: @whattheslime
 from asyncio import run
 from datetime import datetime
-from packaging.version import InvalidVersion, Version as v
-from pathlib import Path
+from packaging.version import Version as v
 from re import search
+from signal import signal, SIGINT
 from urllib.parse import urljoin, urlparse
 
-from lib.args import parse_args, loadlist
+from lib.args import loadlist, parse_args, parse_plugin, parse_output
 from lib.asyncqueue import AsyncQueue
-from lib.logger import info, progress, safe, vuln, warn
+from lib.logger import bold, reset, info, progress, safe, vuln, warn
 from lib.session import http_session
 
 
-LOGO = """
-  __      _____  ___ _           _    
-  \ \    / / _ \/ __| |_  ___ __| |__ 
-   \ \/\/ /|  _/ (__| ' \/ -_) _| / / 
-    \_/\_/ |_|  \___|_||_\___\__|_\_\ 
+LOGO = """\033[34;1m
+ \033[34;1m__      __\033[94m     ___ _           _   
+ \033[34;1m\ \    / / __\033[94m / __| |_  ___ __| |__
+  \033[34;1m\ \/\/ / '_ \\\033[94m (__| ' \/ -_) _| / /
+   \033[34;1m\_/\_/| .__/\033[94m\___|_||_\___\__|_\_\\
+         \033[34m|_|\033[0m
 """
+
 version_regex = r"((?:\d+\.)+\d+)"
 readme_regex = f"Stable tag:\s+{version_regex}"
 
@@ -25,15 +28,21 @@ versions_files = {
     "readme.txt":       readme_regex,
     "README.txt":       readme_regex,
     "README.md":        readme_regex,
-    "readme.md":        readme_regex,
-    "Readme.txt":       readme_regex,
     "changelog.txt":    version_regex,
+    "readme.md":        readme_regex,
     "CHANGELOG.md":     version_regex,
+    "Readme.txt":       readme_regex,
 }
 
 
-def check_version(session, target, slug, max_version, output):
-    host = urlparse(target).netloc
+def interrupt_handler(signum, frame):
+    """CTRL+C handler."""
+    warn("Quitting... Bye!")
+    exit()
+
+
+def check_version(session, target, slug, max_version, output, verbose):
+    host = bold + target + reset
 
     # Check version files.
     for file, regex in versions_files.items():
@@ -50,65 +59,62 @@ def check_version(session, target, slug, max_version, output):
             match = search(regex, response.text)
             if match:
                 # Check if version is vulnerable.
+                log = ""
                 version = v(match.group(1))
-                message = f"{host} {slug} {version} {response.url}"
+                message = f"{host} {slug} {version}"
+                
+                # Version should be vulnerable.
                 if version <= max_version:
-                    vuln(message)
-                    log = message.replace(" ", ",")
-                    # Write log.
-                    if output:
-                        with open(output, "a") as file:
-                            file.write(log)
-                    return log
+                    vuln(message, out=output)
+
+                # Version should be safe.
                 else:
                     safe(message)
-                    return
+                
+                if verbose:
+                    info(slug, "version found on", response.url)
+                
+                return log
+
 
 
 async def main():
     """Program entry point."""
     start_time = datetime.now()
+
+    signal(SIGINT, interrupt_handler)
+
     args = parse_args()
 
-    output = Path(args.output)
-    plugins = [plugin.split(":", 1) for plugin in loadlist(args.plugins)]
+    output = parse_output(args.output)
+    plugins = [parse_plugin(plugin) for plugin in loadlist(args.plugins)]
     targets = loadlist(args.targets)
+    verbose = args.verbose
 
     with http_session(headers=args.headers, proxy=args.proxy) as session:
         asyncqueue = AsyncQueue(args.workers)
 
         info("Loading targets...")
+
         for target in targets:
-            for slug, version in plugins:
-                try:
-                    version = v(version)
-                except InvalidVersion as error:
-                    error(error, "for", slug)
-                    return
-                
+            for slug, version in plugins:                
                 asyncqueue.enqueue(
-                    check_version, session, target, slug, version, output)
+                    check_version, 
+                    session, target, slug, version, output, verbose)
         
         total = len(targets) * len(plugins)
 
-        info(
-            "Starting scan...", 
-            f"{len(targets)} target(s) and {len(plugins)} plugin(s) loaded!)")
-        try:
-            i = 0
-            founded = set()
-            with progress(total) as bar:
-                
-                async for host in asyncqueue.dequeue():
-                    i += 1
-                    bar.update(i)   
-                    if host:
-                        founded.add(host) 
+        info(f"{len(targets)} target(s) and {len(plugins)} plugin(s) loaded!")
+        info("Starting scan...")
+        
+        founded = set()
+        with progress(total) as bar:
+            async for host in asyncqueue.dequeue():
+                bar.update()
+                if host:
+                    founded.add(host)
 
-        except KeyboardInterrupt:
-            warn("Pausing threads...")
-
-    info(len(founded), "hosts have vulnerable plugins")
+    info(len(founded), "hosts have vulnerable plugins.")
     info(f"Eleapsed Time: {datetime.now() - start_time}")
     
 

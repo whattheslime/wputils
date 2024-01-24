@@ -4,35 +4,44 @@ from math import floor
 reset   = "\033[0m"
 bold    = "\033[1m"
     
-def log(color, level, *messages, end="\n"):
+def log(color, level, *messages, end="\n", out=None):
     time = datetime.now().strftime("%H:%M:%S")
+
+    # Write log.
+    if out:
+        with open(out, "a") as file:
+            file.write(" ".join(messages) + end)
+    
     print(
-        f" \033[90m{bold}{time}{reset}", f"{color}{bold}{level}{reset}", 
+        f"\r \033[90m{bold}{time}{reset}", f"{color}{bold}{level}{reset}", 
         *messages, end=end)
 
-def erro(*messages): log("\033[31m", "erro", *messages)
-def vuln(*messages): log("\033[31m", "vuln", *messages)
-def safe(*messages): log("\033[32m", "safe", *messages)
-def warn(*messages): log("\033[33m", "warn", *messages)
-def info(*messages): log("\033[34m", "info", *messages)
+def vuln(*messages, out=""): log("\033[31m", "Vuln", *messages, out=out)
+def safe(*messages, out=""): log("\033[32m", "Safe", *messages, out=out)
+def warn(*messages, out=""): log("\033[33m", "Warn", *messages, out=out)
+def info(*messages, out=""): log("\033[34m", "Info", *messages, out=out)
 
 class Bar:
     def __init__(self, total, percent):
         self.total = total
         self.percent = percent
-        self.update(0)
+        self.index = 0
+        self.update()
         
-    def update(self, iteration):
-        if self.percent:
-            iteration = floor(iteration * 100 / self.total)
-            total = 100
-            progress = f"{iteration}%"
-        else:
-            total = self.total
-            progress = f"{iteration}/{total} it."
+    def update(self):
+        iteration = self.index
+
+
+        percent = f"{floor(iteration * 100 / self.total)}%"
+        p_spaces = " " * (3 - len(str(percent)))
+
+        progress = f"{iteration}/{self.total} it."
+        spaces = " "  * (len(str(self.total)) - len(str(iteration)))
         
-        spaces = " "  * (len(str(total)) - len(str(iteration)))
-        log("\033[34m", "info", f"Progress: {spaces}{progress}", end="\r")
+        log(
+            "\033[34m", "Info", "Progress", 
+            spaces+progress, p_spaces+percent, end="\r")
+        self.index += 1
 
 class progress:
     def __init__(self, total, percent=False):
