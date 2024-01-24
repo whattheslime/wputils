@@ -2,14 +2,16 @@
 # author: @whattheslime
 from asyncio import run
 from datetime import datetime
+from os import get_terminal_size
 from packaging.version import Version as v
 from re import search
+from sys import stdout
 from signal import signal, SIGINT
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from lib.args import loadlist, parse_args, parse_plugin, parse_output
 from lib.asyncqueue import AsyncQueue
-from lib.logger import bold, reset, info, progress, safe, vuln, warn
+from lib.logger import info, progress, safe, vuln, warn
 from lib.session import http_session
 
 
@@ -37,12 +39,13 @@ versions_files = {
 
 def interrupt_handler(signum, frame):
     """CTRL+C handler."""
-    warn("Quitting... Bye!")
+    message = "Quitting... Bye!"
+    warn(message + " " * (get_terminal_size().columns - 15 - len(message)))
     exit()
 
 
 def check_version(session, target, slug, max_version, output, verbose):
-    host = bold + target + reset
+    host = target
 
     # Check version files.
     for file, regex in versions_files.items():
@@ -94,7 +97,7 @@ async def main():
     with http_session(headers=args.headers, proxy=args.proxy) as session:
         asyncqueue = AsyncQueue(args.workers)
 
-        info("Loading targets...")
+        info("Loading targets and plugins...")
 
         for target in targets:
             for slug, version in plugins:                
@@ -114,7 +117,7 @@ async def main():
                 if host:
                     founded.add(host)
 
-    info(len(founded), "hosts have vulnerable plugins.")
+    info(len(founded), "target(s) have vulnerable plugin(s).")
     info(f"Eleapsed Time: {datetime.now() - start_time}")
     
 

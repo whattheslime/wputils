@@ -1,5 +1,7 @@
+from asyncio.exceptions import CancelledError
 from datetime import datetime
 from math import floor
+
 
 reset   = "\033[0m"
 bold    = "\033[1m"
@@ -31,7 +33,6 @@ class Bar:
     def update(self):
         iteration = self.index
 
-
         percent = f"{floor(iteration * 100 / self.total)}%"
         p_spaces = " " * (3 - len(str(percent)))
 
@@ -40,7 +41,8 @@ class Bar:
         
         log(
             "\033[34m", "Info", "Progress", 
-            spaces+progress, p_spaces+percent, end="\r")
+            spaces + progress, " ", p_spaces + percent, end="\r")
+        
         self.index += 1
 
 class progress:
@@ -51,5 +53,7 @@ class progress:
     def __enter__(self):
         return Bar(self.total, percent=self.percent)
 
-    def __exit__(self, *args):
-        print()
+    def __exit__(self, etype, value, traceback):
+        if etype != CancelledError:
+            print()
+        
