@@ -2,30 +2,32 @@
 # author: @whattheslime
 from asyncio import run
 from datetime import datetime
-from os import get_terminal_size
+from pathlib import Path
 from packaging.version import Version as v
+from requests import Session
 from re import search
 from sys import stdout
 from signal import signal, SIGINT
 from urllib.parse import urljoin
-
 from lib.args import loadlist, parse_args, parse_plugin, parse_output
 from lib.asyncqueue import AsyncQueue
-from lib.logger import info, progress, safe, vuln, warn
+from lib.logger import info, Progress, safe, vuln, warn
 from lib.session import http_session
 
 
-LOGO = """\033[34;1m
- \033[34;1m__      __\033[94m     ___ _           _   
- \033[34;1m\ \    / / __\033[94m / __| |_  ___ __| |__
-  \033[34;1m\ \/\/ / '_ \\\033[94m (__| ' \/ -_) _| / /
-   \033[34;1m\_/\_/| .__/\033[94m\___|_||_\___\__|_\_\\
-         \033[34m|_|\033[0m
+logo = """\033[34;1m
+  \033[34;1m__      __\033[94m     ___ _           _   
+  \033[34;1m\ \    / / __\033[94m / __| |_  ___ __| |__
+   \033[34;1m\ \/\/ / '_ \\\033[94m (__| ' \/ -_) _| / /
+    \033[34;1m\_/\_/| .__/\033[94m\___|_||_\___\__|_\_\\
+          \033[34m|_|\033[0m            @whattheslime
 """
 
 version_regex = r"((?:\d+\.)+\d+)"
 readme_regex = f"Stable tag:\s+{version_regex}"
 
+#: Plugins files that may contains plugin version, sorted by occurences in 
+#: existing plugins.
 versions_files = {        
     "readme.txt":       readme_regex,
     "README.txt":       readme_regex,
@@ -39,22 +41,28 @@ versions_files = {
 
 def interrupt_handler(signum, frame):
     """CTRL+C handler."""
-    message = "Quitting... Bye!"
-    warn(message + " " * (get_terminal_size().columns - 15 - len(message)))
+    warn("Quitting... Bye!")
     exit()
 
 
-def check_version(session, target, slug, max_version, output, verbose):
-    host = target
+def check_version(
+    session: Session, target: str, slug: str, max_version: v, output: Path,
+    verbose: bool) -> bool:
+    """Look for versions in plugins common files and compare it with the one 
+    passed in argument"""
+    global nb_requests
+    #: Will be set to True if the founded version is equal to or less than the 
+    #: requested version.
+    is_vulnerable = False
 
-    # Check version files.
     for file, regex in versions_files.items():
-        url = urljoin(target, f"wp-content/plugins/{slug}/{file}")
         try:
+            url = urljoin(target, f"wp-content/plugins/{slug}/{file}")
             response = session.get(url, allow_redirects=False)
+            session.nb_requests += 1
         except Exception as exception:
             warn(exception)
-            return
+            return False
         
         # Search version in file.
         title = search(r"<title>(.*)</title>", response.text)
@@ -62,43 +70,53 @@ def check_version(session, target, slug, max_version, output, verbose):
             match = search(regex, response.text)
             if match:
                 # Check if version is vulnerable.
-                log = ""
                 version = v(match.group(1))
-                message = f"{host} {slug} {version}"
+                message = f"{target} {slug}:{version}"
                 
                 # Version should be vulnerable.
                 if version <= max_version:
-                    vuln(message, out=output)
+                    is_vulnerable = True
+                    vuln(message)
 
+                    # Write result in log file.
+                    if output:
+                        output.open("a").write(f"{message}\n")
+                
                 # Version should be safe.
                 else:
                     safe(message)
                 
                 if verbose:
-                    info(slug, "version found on", response.url)
-                
-                return log
+                    info(response.url)
 
+                return is_vulnerable   
+    return False
 
 
 async def main():
     """Program entry point."""
+    #: Programme timer.
     start_time = datetime.now()
-
-    signal(SIGINT, interrupt_handler)
-
+    #: Vulnerables founded plugins counter.
+    vuln_plugins = 0
+    
+    # Parse user arguments.
     args = parse_args()
-
+    
     output = parse_output(args.output)
     plugins = [parse_plugin(plugin) for plugin in loadlist(args.plugins)]
     targets = loadlist(args.targets)
     verbose = args.verbose
 
+    # Set signal interrupt handler.
+    signal(SIGINT, interrupt_handler)
+
     with http_session(headers=args.headers, proxy=args.proxy) as session:
         asyncqueue = AsyncQueue(args.workers)
-
-        info("Loading targets and plugins...")
-
+        
+        if verbose:
+            info("Loading targets and plugins...")
+        
         for target in targets:
             for slug, version in plugins:                
                 asyncqueue.enqueue(
@@ -110,17 +128,18 @@ async def main():
         info(f"{len(targets)} target(s) and {len(plugins)} plugin(s) loaded!")
         info("Starting scan...")
         
-        founded = set()
-        with progress(total) as bar:
-            async for host in asyncqueue.dequeue():
+        with Progress(total) as bar:
+            async for is_vulnerable in asyncqueue.dequeue():
                 bar.update()
-                if host:
-                    founded.add(host)
+                vuln_plugins += int(is_vulnerable)
+    if verbose:
+        info(f"Elapsed time:    {datetime.now() - start_time}")
+        info(f"Plugins found:   {vuln_plugins}")
+        info(f"Requests sent:   {session.nb_requests}")
 
-    info(len(founded), "target(s) have vulnerable plugin(s).")
-    info(f"Eleapsed Time: {datetime.now() - start_time}")
-    
+    if vuln_plugins:
+        info(f"Results file:    {output}")
 
 if __name__ == "__main__":
-    print(LOGO)
+    print(logo)
     run(main())

@@ -15,21 +15,21 @@ python3 -m pip install packaging
 
 ## Usage
 
-One target, one plugin.
+One target, one plugin:
 
 ```bash
-./wpcheck.py -t http://target.url -p contact-form-7:5.3.2
+./wpcheck -t http://target.url -p contact-form-7:5.3.2
 ```
 
-Many targets, many plugins.
+Many targets, many plugins:
 
 ```bash
-./wpcheck.py -t http://target1.url http://target2.url -p contact-form-7:5.3.2 wordpress-seo:17.2
+./wpcheck -t http://target1.url http://target2.url -p contact-form-7:5.3.2 wordpress-seo:17.2
 ```
 
-Targets files, plugins files.
+Targets files, plugins files:
 
 ```bash
-./wpcheck.py -t path/to/targets1.lst path/to/targets2.lst -p path/to/plugins1.lst path/to/plugins2.lst
+./wpcheck -t path/to/targets.lst http://target.url -p contact-form-7:5.3.2 path/to/plugins.lst
 ```
 

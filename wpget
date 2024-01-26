@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+# author: @whattheslime
+from argparse import ArgumentParser, Namespace
+from pathlib import Path
+from urllib.parse import urljoin
+
+from lib.args import loadlist, parse_plugin
+from lib.session import http_session
+from lib.logger import Progress, info, warn
+
+
+logo = """\033[34;1m
+  \033[34;1m__      __\033[94m     ____     _   
+  \033[34;1m\ \    / / __\033[94m /  __|___| |_ 
+   \033[34;1m\ \/\/ / '_ \\\033[94m  (_ / -_)  _|
+    \033[34;1m\_/\_/| .__/\033[94m\____\___|\__|
+          \033[34m|_|\033[0m     @whattheslime
+"""
+
+
+default_output = Path(__file__).parent / "archives"
+
+def parse_args() -> Namespace:
+    """Function to parse user arguments."""
+    parser = ArgumentParser()
+
+    parser.add_argument(
+        "-p", "--plugins", type=str, nargs="+", required=True,
+        help="plugin slug and version to download (e.g. contact-form-7:5.3.2) "
+        " or file path containing plugins separated by newlines")
+    
+    parser.add_argument(
+        "-o", "--output", type=Path, default=default_output, 
+        help="output directory path")
+    
+    parser.add_argument(
+        "-x", "--proxy", type=str, default="",
+        help="proxy url (e.g. http://127.0.0.1:8080)")
+
+    return parser.parse_args()
+
+
+def main():
+    """Program entry point."""
+    url = "https://downloads.wordpress.org/plugin/"
+    args = parse_args()
+
+    plugins = [parse_plugin(plugin) for plugin in loadlist(args.plugins)]
+
+    with http_session(proxy=args.proxy) as session:
+        with Progress(len(plugins)) as progress:
+            for slug, version in plugins:
+                plugin = f"{slug}.{version}.zip"
+                archive = args.output / plugin
+
+                if archive.exists():
+                    info(f"{plugin} exists. Skiped!")
+                    continue
+
+                response = session.get(urljoin(url, plugin))
+
+                if response.status_code == 200:
+                    
+
+                    with open(archive, "wb") as file:
+                        file.write(response.content)
+
+                    info(f"{plugin} downloaded!")
+                else:
+                    warn(f"{plugin} not download! ({response.status_code})")
+
+                progress.update()
+
+if __name__ == "__main__":
+    print(logo)
+    main()

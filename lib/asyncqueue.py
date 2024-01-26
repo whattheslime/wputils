@@ -5,7 +5,7 @@ from inspect import iscoroutinefunction
 
 class AsyncQueue:
     """AsyncIO object aims to run functions concurrently using Async Queues."""
-    def __init__(self, max_workers):
+    def __init__(self, max_workers: int):
         #: Number of workers.
         self.max_workers = max_workers
         #: Jobs queue.
@@ -13,7 +13,7 @@ class AsyncQueue:
         #: Jobs results queue.
         self.results = Queue()
 
-    def enqueue(self, job, *args, **kwargs):
+    def enqueue(self, job: callable, *args, **kwargs):
         """Add a job in the jobs queue."""
         _job = partial(job, *args, **kwargs)
         self.queue.put_nowait(_job)

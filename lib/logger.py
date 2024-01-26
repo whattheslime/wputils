@@ -1,59 +1,52 @@
-from asyncio.exceptions import CancelledError
 from datetime import datetime
 from math import floor
 
 
 reset   = "\033[0m"
 bold    = "\033[1m"
-    
-def log(color, level, *messages, end="\n", out=None):
+
+def log(color: str, level: str, *messages: str, end="\n"):
+    """Display log on stdout."""
     time = datetime.now().strftime("%H:%M:%S")
 
-    # Write log.
-    if out:
-        with open(out, "a") as file:
-            file.write(" ".join(messages) + end)
-    
     print(
-        f"\r \033[90m{bold}{time}{reset}", f"{color}{bold}{level}{reset}", 
-        *messages, end=end)
+        f"\033[K\r {color}\033[2m{bold}{time}{reset}",  
+        f"{color}{bold}{level}{reset}", *messages, end=end, flush=True)
 
-def vuln(*messages, out=""): log("\033[31m", "Vuln", *messages, out=out)
-def safe(*messages, out=""): log("\033[32m", "Safe", *messages, out=out)
-def warn(*messages, out=""): log("\033[33m", "Warn", *messages, out=out)
-def info(*messages, out=""): log("\033[34m", "Info", *messages, out=out)
+def vuln(*messages: str): log("\033[31m", "Vuln", *messages)
+def safe(*messages: str): log("\033[32m", "Safe", *messages)
+def warn(*messages: str): log("\033[33m", "Warn", *messages)
+def info(*messages: str): log("\033[34m", "Info", *messages)
 
-class Bar:
-    def __init__(self, total, percent):
+
+class Progress:
+    """Display iterrations progress."""
+    def __init__(self, total: int):
+        #: Total number of iterration to process.
         self.total = total
-        self.percent = percent
+        #: Current iteration index.
         self.index = 0
+        # Update the progression at intialization.
         self.update()
-        
+    
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
     def update(self):
-        iteration = self.index
+        """Update progres values."""
+        # Calculate prgress percentage and iterations.
+        percent = f"{floor(self.index * 100 / self.total)}%"
+        pt_nb_spaces = 3 - len(str(percent))
 
-        percent = f"{floor(iteration * 100 / self.total)}%"
-        p_spaces = " " * (3 - len(str(percent)))
-
-        progress = f"{iteration}/{self.total} it."
-        spaces = " "  * (len(str(self.total)) - len(str(iteration)))
+        iterations = f"{self.index}/{self.total} it."
+        it_nb_spaces = len(str(self.total)) - len(str(self.index))
         
-        log(
-            "\033[34m", "Info", "Progress", 
-            spaces + progress, " ", p_spaces + percent, end="\r")
+        # Display progress on stdout.
+        log("\033[34m", "Info", "Progress", 
+            " " * it_nb_spaces + iterations, " " * pt_nb_spaces + percent, 
+            end="\r")
         
         self.index += 1
-
-class progress:
-    def __init__(self, total, percent=False):
-        self.total = total
-        self.percent = percent
-
-    def __enter__(self):
-        return Bar(self.total, percent=self.percent)
-
-    def __exit__(self, etype, value, traceback):
-        if etype != CancelledError:
-            print()
-        
