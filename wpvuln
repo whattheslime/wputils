@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+# author: @whattheslime
+from argparse import ArgumentParser, Namespace
+from json import load as json_load
+from packaging.utils import Version as v
+from pathlib import Path
+
+from lib.args import add_plugins_arg, load_plugins
+from lib.logger import warn
+
+#: ASCII art logo.
+logo = """
+ \033[34;1m__      __\033[94m  __   __   _       
+ \033[34;1m\ \    / / _\033[94m\ \ / / _| |_ _   
+  \033[34;1m\ \/\/ / '_ \\\033[94m V /|| | | ' \ 
+   \033[34;1m\_/\_/| .__/\033[94m\_/\_,_|_|_||_| 
+         \033[34;1m|_|\033[0m      @whattheslime   
+"""
+
+#: Default vulnerabilities database.
+vulns_path = Path(__file__).parent / "vulns.json"
+
+#: Vulnerabilities string template.
+vuln_template = """ \033[94;1m{title}\033[0m
+   \033[34;1mpublished:\033[0m {date}
+   \033[34;1mreferences:\033[0m
+   - {references}
+"""
+
+def parse_args() -> Namespace:
+    """Function to parse user arguments."""
+    parser = ArgumentParser()
+
+    add_plugins_arg(parser)
+
+    return parser.parse_args()
+
+
+def parse_data(vulns_data: dict) -> dict:
+    """Format database with only plugins and with plugins slug as key."""
+    database = {}
+
+    for _, vuln in vulns_data.items():
+        for software in vuln["software"]:
+            if software["type"] == "plugin":
+                slug = software["slug"]
+                database.setdefault(software["slug"], [])
+                database[slug].append({
+                    "title": vuln["title"],
+                    "affected_versions": software["affected_versions"],
+                    "references": vuln["references"],
+                    "published": vuln["published"]})
+    return database
+
+
+def check_version(version: v, affected_versions: dict) -> bool:
+    """Check if plugin version is in vulnerables versions."""
+    for data in affected_versions.values():
+        from_version = (
+            v("0.0.0")
+            if data["from_version"] == "*" else v(data["from_version"]))
+        from_inclusive = data["from_inclusive"]
+        to_version = v(data["to_version"])
+        to_inclusive = data["to_inclusive"]
+
+        if from_inclusive and to_inclusive:
+            if version >= from_version and version <= to_version:
+                return True
+        elif not from_inclusive and to_inclusive:
+            if version > from_version and version <= to_version:
+                return True
+        elif from_inclusive and not to_inclusive:
+            if version >= from_version and version < to_version:
+                return True
+        elif not from_inclusive and not to_inclusive:
+            if version > from_version and version < to_version:
+                return True
+
+    return False
+
+
+def main():
+    """Program entry point."""
+    #: Parse user arguments.
+    args = parse_args()
+     
+    # Load vulnerabilities database.
+    if not vulns_path.is_file():
+        warn(f"\"{vulns_path.name}\" not found!")
+        return
+    
+    with open("vulns.json") as file:
+        vulns_data = parse_data(json_load(file))
+    
+    # Search for plugins vulnerabilities.
+    for slug, version in load_plugins(args.plugins):
+        # Check if plugin is in database.
+        if slug in vulns_data:
+            for vuln_data in vulns_data[slug]:
+                # Check if plugin version match.
+                if check_version(version, vuln_data["affected_versions"]):
+                    vuln_string = vuln_template.format(
+                        title=vuln_data["title"], 
+                        date=vuln_data["published"].split(" ")[0],
+                        references="\n   - ".join(vuln_data["references"])
+                    )
+                    print(vuln_string)
+        
+
+if __name__ == "__main__":
+    print(logo)
+    main()

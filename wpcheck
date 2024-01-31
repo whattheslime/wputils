@@ -1,28 +1,39 @@
 #!/usr/bin/env python3
 # author: @whattheslime
+from argparse import ArgumentParser, Namespace
 from asyncio import run
 from datetime import datetime
 from pathlib import Path
 from packaging.version import Version as v
-from requests import Session
+from requests import Session, RequestException
 from re import search
-from sys import stdout
-from signal import signal, SIGINT
 from urllib.parse import urljoin
-from lib.args import loadlist, parse_args, parse_plugin, parse_output
+
+from lib.args import (
+    add_output_args, add_plugins_arg, add_session_args, 
+    load_lists, load_plugins, parse_output,  
+)
 from lib.asyncqueue import AsyncQueue
+from lib.interrupt import sigint_handler
 from lib.logger import info, Progress, safe, vuln, warn
 from lib.session import http_session
 
 
-logo = """\033[34;1m
+#: ASCII art logo.
+logo = """
   \033[34;1m__      __\033[94m     ___ _           _   
   \033[34;1m\ \    / / __\033[94m / __| |_  ___ __| |__
    \033[34;1m\ \/\/ / '_ \\\033[94m (__| ' \/ -_) _| / /
-    \033[34;1m\_/\_/| .__/\033[94m\___|_||_\___\__|_\_\\
+    \033[34;1m\_/\_/| .__/\033[94m\___|_||_|___\__|_\_\\
           \033[34m|_|\033[0m            @whattheslime
 """
 
+# Default user arguments values.
+default_workers = 20
+default_output = Path(__file__).parent / "results"
+default_directory = f"wp-content/plugins"
+
+# Regular expressions.
 version_regex = r"((?:\d+\.)+\d+)"
 readme_regex = f"Stable tag:\s+{version_regex}"
 
@@ -39,29 +50,28 @@ versions_files = {
 }
 
 
-def interrupt_handler(signum, frame):
-    """CTRL+C handler."""
-    warn("Quitting... Bye!")
-    exit()
-
-
 def check_version(
-    session: Session, target: str, slug: str, max_version: v, output: Path,
-    verbose: bool) -> bool:
+    session: Session, target: str, directory: str, slug: str, max_version: v, 
+    output: Path, verbose: bool) -> bool:
     """Look for versions in plugins common files and compare it with the one 
     passed in argument"""
-    global nb_requests
     #: Will be set to True if the founded version is equal to or less than the 
     #: requested version.
     is_vulnerable = False
 
+    # Check if target has previous requests errors to skip and prevent time 
+    # sloss.
+    if target in session.errors:
+        return False
+
     for file, regex in versions_files.items():
         try:
-            url = urljoin(target, f"wp-content/plugins/{slug}/{file}")
+            url = urljoin(target, f"{directory}/{slug}/{file}")
             response = session.get(url, allow_redirects=False)
             session.nb_requests += 1
-        except Exception as exception:
-            warn(exception)
+        except RequestException as exception:
+            session.errors.add(target)
+            warn(target, exception)
             return False
         
         # Search version in file.
@@ -93,35 +103,66 @@ def check_version(
     return False
 
 
+def parse_args() -> Namespace:
+    """Function to parse user arguments."""
+    parser = ArgumentParser()
+    
+    # Plugins arguments.
+    add_plugins_arg(parser)
+
+    # Check arguments.
+    parser.add_argument(
+        "-t", "--targets", type=str, nargs="+", required=True,
+        help="target url (e.g. http://target.com) or file path containing urls"
+        " separated by newlines")
+
+    parser.add_argument(
+        "-d", "--plugins-directory", type=str, default=default_directory,
+        help=f"plugins installation dirctory (default: {default_directory})")
+
+    parser.add_argument(
+        "-w", "--workers", type=int, default=default_workers,
+        help=f"number of max concurrent workers (default {default_workers})")
+
+    # HTTP session arguments.
+    add_session_args(parser)
+
+    # Output arguments.
+    add_output_args(parser, default_output)
+
+    return parser.parse_args()
+
+
 async def main():
     """Program entry point."""
     #: Programme timer.
     start_time = datetime.now()
+    # Set signal interrupt handler.
+    sigint_handler()
     #: Vulnerables founded plugins counter.
     vuln_plugins = 0
-    
+
     # Parse user arguments.
     args = parse_args()
-    
+    directory = args.plugins_directory
     output = parse_output(args.output)
-    plugins = [parse_plugin(plugin) for plugin in loadlist(args.plugins)]
-    targets = loadlist(args.targets)
+    plugins = load_plugins(args.plugins)
+    targets = load_lists(args.targets)
     verbose = args.verbose
 
-    # Set signal interrupt handler.
-    signal(SIGINT, interrupt_handler)
+    if directory.endswith("/"):
+        directory = directory[:-1]
 
-    with http_session(headers=args.headers, proxy=args.proxy) as session:
+    with http_session(args.headers, args.proxy) as session:
         asyncqueue = AsyncQueue(args.workers)
         
-        if verbose:
-            info("Loading targets and plugins...")
+        info("Loading targets and plugins...")
         
         for target in targets:
             for slug, version in plugins:                
                 asyncqueue.enqueue(
                     check_version, 
-                    session, target, slug, version, output, verbose)
+                    session, target, directory, slug, version, output, verbose)
         
         total = len(targets) * len(plugins)
 
@@ -132,10 +173,10 @@ async def main():
             async for is_vulnerable in asyncqueue.dequeue():
                 bar.update()
                 vuln_plugins += int(is_vulnerable)
-    if verbose:
-        info(f"Elapsed time:    {datetime.now() - start_time}")
-        info(f"Plugins found:   {vuln_plugins}")
-        info(f"Requests sent:   {session.nb_requests}")
+
+    info(f"Elapsed time:    {datetime.now() - start_time}")
+    info(f"Plugins found:   {vuln_plugins}")
+    info(f"Requests sent:   {session.nb_requests}")
 
     if vuln_plugins:
         info(f"Results file:    {output}")

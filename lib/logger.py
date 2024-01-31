@@ -39,13 +39,13 @@ class Progress:
         """Update progres values."""
         # Calculate prgress percentage and iterations.
         percent = f"{floor(self.index * 100 / self.total)}%"
-        pt_nb_spaces = 3 - len(str(percent))
+        pt_nb_spaces = 4 - len(str(percent))
 
         iterations = f"{self.index}/{self.total} it."
         it_nb_spaces = len(str(self.total)) - len(str(self.index))
         
         # Display progress on stdout.
-        log("\033[34m", "Info", "Progress", 
+        log("\033[34m", "Info", "Progress:", 
             " " * it_nb_spaces + iterations, " " * pt_nb_spaces + percent, 
             end="\r")
         

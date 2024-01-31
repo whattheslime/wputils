@@ -1,4 +1,4 @@
 __pycache__/
-*.zip
-*.lst
-*.out
+archives/*
+lists/
+results/*.out

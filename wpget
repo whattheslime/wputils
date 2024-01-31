@@ -3,51 +3,52 @@
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from urllib.parse import urljoin
+from zipfile import ZipFile
 
-from lib.args import loadlist, parse_plugin
+from lib.args import (
+    add_output_args, add_plugins_arg, add_session_args, load_plugins
+)
+from lib.interrupt import sigint_handler
 from lib.session import http_session
 from lib.logger import Progress, info, warn
 
 
-logo = """\033[34;1m
-  \033[34;1m__      __\033[94m     ____     _   
-  \033[34;1m\ \    / / __\033[94m /  __|___| |_ 
+#: ASCII art logo.
+logo = """
+  \033[34;1m__      __\033[94m     ____     _    
+  \033[34;1m\ \    / / __\033[94m /  __|___| |_  
    \033[34;1m\ \/\/ / '_ \\\033[94m  (_ / -_)  _|
-    \033[34;1m\_/\_/| .__/\033[94m\____\___|\__|
-          \033[34m|_|\033[0m     @whattheslime
+    \033[34;1m\_/\_/| .__/\033[94m\____\___|\__| 
+          \033[34m|_|\033[0m     @whattheslime   
 """
 
-
+#: Default archives directory path.
 default_output = Path(__file__).parent / "archives"
 
 def parse_args() -> Namespace:
     """Function to parse user arguments."""
     parser = ArgumentParser()
 
-    parser.add_argument(
-        "-p", "--plugins", type=str, nargs="+", required=True,
-        help="plugin slug and version to download (e.g. contact-form-7:5.3.2) "
-        " or file path containing plugins separated by newlines")
-    
-    parser.add_argument(
-        "-o", "--output", type=Path, default=default_output, 
-        help="output directory path")
-    
-    parser.add_argument(
-        "-x", "--proxy", type=str, default="",
-        help="proxy url (e.g. http://127.0.0.1:8080)")
+    add_plugins_arg(parser)
+    add_session_args(parser)
+    add_output_args(parser, default_output)
 
     return parser.parse_args()
 
 
 def main():
     """Program entry point."""
+    # Set signal interrupt handler.
+    sigint_handler()
+
+
     url = "https://downloads.wordpress.org/plugin/"
+    # Parse user arguments.
     args = parse_args()
 
-    plugins = [parse_plugin(plugin) for plugin in loadlist(args.plugins)]
+    plugins = load_plugins(args.plugins)
 
-    with http_session(proxy=args.proxy) as session:
+    with http_session(args.headers, args.proxy) as session:
         with Progress(len(plugins)) as progress:
             for slug, version in plugins:
                 plugin = f"{slug}.{version}.zip"
@@ -58,16 +59,19 @@ def main():
                     continue
 
                 response = session.get(urljoin(url, plugin))
-
+                
                 if response.status_code == 200:
-                    
-
                     with open(archive, "wb") as file:
                         file.write(response.content)
 
                     info(f"{plugin} downloaded!")
+
+                    with ZipFile(archive, "r") as zipfile:
+                        zipfile.extractall(args.output)
+
+                    info(f"{plugin} downloaded!")
                 else:
-                    warn(f"{plugin} not download! ({response.status_code})")
+                    warn(f"{archive.name} extracted! ({response.status_code})")
 
                 progress.update()
 
