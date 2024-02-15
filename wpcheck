@@ -54,7 +54,7 @@ def check_version(
     session: Session, target: str, directory: str, slug: str, max_version: v, 
     output: Path, verbose: bool) -> bool:
     """Look for versions in plugins common files and compare it with the one 
-    passed in argument"""
+    passed in argument."""
     #: Will be set to True if the founded version is equal to or less than the 
     #: requested version.
     is_vulnerable = False
@@ -67,39 +67,38 @@ def check_version(
     for file, regex in versions_files.items():
         try:
             url = urljoin(target, f"{directory}/{slug}/{file}")
-            response = session.get(url, allow_redirects=False)
+            response = session.head(url, allow_redirects=False)
             session.nb_requests += 1
         except RequestException as exception:
             session.errors.add(target)
             warn(target, exception)
             return False
         
-        # Search version in file.
-        title = search(r"<title>(.*)</title>", response.text)
-        if response.status_code == 200 and not title:
-            match = search(regex, response.text)
-            if match:
-                # Check if version is vulnerable.
-                version = v(match.group(1))
-                message = f"{target} {slug}:{version}"
-                
-                # Version should be vulnerable.
-                if version <= max_version:
-                    is_vulnerable = True
-                    vuln(message)
-
-                    # Write result in log file.
-                    if output:
-                        output.open("a").write(f"{message}\n")
-                
-                # Version should be safe.
-                else:
-                    safe(message)
-                
-                if verbose:
-                    info(response.url)
-
-                return is_vulnerable   
+        # Get page content if status code is 200.
+        if response.status_code == 200:
+            response = session.get(url, allow_redirects=False)
+            session.nb_requests += 1
+            # Check if content in not an HTML page.
+            if not search(r"<title>(.*)</title>", response.text):
+                # Search version in file.
+                match = search(regex, response.text)
+                if match:
+                    # Check if version is vulnerable.
+                    version = v(match.group(1))
+                    message = f"{target} {slug}:{version}"
+                    # Version should be vulnerable.
+                    if version <= max_version:
+                        is_vulnerable = True
+                        vuln(message)
+                        # Write result in log file.
+                        if output:
+                            output.open("a").write(f"{message}\n")
+                    # Version should be safe.
+                    else:
+                        safe(message)
+                    if verbose:
+                        info(response.url)
+                    return is_vulnerable   
     return False
 
 
